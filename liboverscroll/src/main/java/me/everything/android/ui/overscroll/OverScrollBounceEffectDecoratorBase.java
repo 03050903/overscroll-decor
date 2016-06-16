@@ -274,7 +274,8 @@ public abstract class OverScrollBounceEffectDecoratorBase implements IOverScroll
             // If moved in counter direction onto a potential under-scroll state -- don't. Instead, abort
             // over-scrolling abruptly, thus returning control to which-ever touch handlers there
             // are waiting (e.g. regular scroller handlers).
-            //TODO 其实这坨还没怎么明白 -- 好像注释代码效果也没什么变化
+            //发现问题了 当向一个方向滑动的时候,如果立即反向滑动 会发现 view 也跟着像相反的方向translation了
+            //因此这个方法是为了防止这个问题 如果反向滑动就将状态切回 idle状态,
             if ( (mStartAttr.mDir && !mMoveAttr.mDir && (newOffset <= mStartAttr.mAbsOffset)) ||
                  (!mStartAttr.mDir && mMoveAttr.mDir && (newOffset >= mStartAttr.mAbsOffset)) ) {
                 //调整event的点
