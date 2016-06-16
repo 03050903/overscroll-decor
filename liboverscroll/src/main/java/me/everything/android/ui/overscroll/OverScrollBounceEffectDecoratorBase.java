@@ -63,6 +63,7 @@ public abstract class OverScrollBounceEffectDecoratorBase implements IOverScroll
     protected static final int MAX_BOUNCE_BACK_DURATION_MS = 800;
     protected static final int MIN_BOUNCE_BACK_DURATION_MS = 200;
 
+    //用于记录idle阶段开始是的一些属性 触摸点id,滑动距离....
     protected final OverScrollStartAttributes mStartAttr = new OverScrollStartAttributes();
     protected final IOverScrollDecoratorAdapter mViewAdapter;
 
@@ -84,10 +85,12 @@ public abstract class OverScrollBounceEffectDecoratorBase implements IOverScroll
      * Motion attributes: keeps data describing current motion event.
      * <br/>Orientation agnostic: subclasses provide either horizontal or vertical
      * initialization of the agnostic attributes.
+     * 主要记录关于ACTION_MOVE状态中 view的offset,以及 pointer 相对移动的offset
+     * 以及 init 操作
      */
     protected abstract static class MotionAttributes {
-        public float mAbsOffset;
-        public float mDeltaOffset;
+        public float mAbsOffset; /**view 移动的绝对位置 一般用{@link View#getTranslationX()} 或者 {@link View#getTranslationY()}*/
+        public float mDeltaOffset;/**前后滑动的距离  当前点的坐标 - 历史点坐标 event.getX(0) - event.getHistoricalX(0, 0)*/
         public boolean mDir; // True = 'forward', false = 'backwards'.
 
         protected abstract boolean init(View view, MotionEvent event);
@@ -110,6 +113,11 @@ public abstract class OverScrollBounceEffectDecoratorBase implements IOverScroll
     /**
      * Interface of decorator-state delegation classes. Defines states as handles of two fundamental
      * touch events: actual movement, up/cancel.
+     * 拖拽效果的状态接口 采用 Decorator模式
+     * 状态分为3个
+     * @see IdleState 空闲状态 -- 主要是监听ACTION_MOVE来判断是否处于不overScroll状态
+     * @see OverScrollingState 正在拖拽中
+     * @see BounceBackState 正在回弹中
      */
     protected interface IDecoratorState {
 
@@ -154,6 +162,10 @@ public abstract class OverScrollBounceEffectDecoratorBase implements IOverScroll
         final MotionAttributes mMoveAttr;
 
         public IdleState() {
+            /**
+             * 将{@link #createMotionAttributes} 抛给子类做具体的实现
+             * 例如 {@link HorizontalOverScrollBounceEffectDecorator#createMotionAttributes()}
+             */
             mMoveAttr = createMotionAttributes();
         }
 
@@ -166,6 +178,7 @@ public abstract class OverScrollBounceEffectDecoratorBase implements IOverScroll
         public boolean handleMoveTouchEvent(MotionEvent event) {
 
             final View view = mViewAdapter.getView();
+            //如果init初始化成功
             if (!mMoveAttr.init(view, event)) {
                 return false;
             }
@@ -175,10 +188,15 @@ public abstract class OverScrollBounceEffectDecoratorBase implements IOverScroll
                 (mViewAdapter.isInAbsoluteEnd() && !mMoveAttr.mDir)) {
 
                 // Save initial over-scroll attributes for future reference.
+                //记录初始化状态信息
                 mStartAttr.mPointerId = event.getPointerId(0);
                 mStartAttr.mAbsOffset = mMoveAttr.mAbsOffset;
                 mStartAttr.mDir = mMoveAttr.mDir;
 
+                /**
+                 * 状态切换的时候需要调用 {@link OverScrollingState#handleEntryTransition}来
+                 * 做状态的转换和设置事件的监听
+                 */
                 issueStateTransition(mOverScrollingState);
                 return mOverScrollingState.handleMoveTouchEvent(event);
             }
@@ -234,6 +252,11 @@ public abstract class OverScrollBounceEffectDecoratorBase implements IOverScroll
 
             // Switching 'pointers' (e.g. fingers) on-the-fly isn't supported -- abort over-scroll
             // smoothly using the default bounce-back animation in this case.
+            /**
+             * @see mStartAttr.mPointerId 这个值是 Idle状态下保持的 event.getPointerId(0)
+             * 和 现在 overScrolling状态下的 event.getPointerId(0)对比 = 不支持 跳动的 点(on-the-fly)
+             * 如果发盛唐跳动 就直接将状态切换到 bouceBack
+             */
             if (mStartAttr.mPointerId != event.getPointerId(0)) {
                 issueStateTransition(mBounceBackState);
                 return true;
@@ -251,8 +274,10 @@ public abstract class OverScrollBounceEffectDecoratorBase implements IOverScroll
             // If moved in counter direction onto a potential under-scroll state -- don't. Instead, abort
             // over-scrolling abruptly, thus returning control to which-ever touch handlers there
             // are waiting (e.g. regular scroller handlers).
+            //TODO 其实这坨还没怎么明白 -- 好像注释代码效果也没什么变化
             if ( (mStartAttr.mDir && !mMoveAttr.mDir && (newOffset <= mStartAttr.mAbsOffset)) ||
                  (!mStartAttr.mDir && mMoveAttr.mDir && (newOffset >= mStartAttr.mAbsOffset)) ) {
+                //调整event的点
                 translateViewAndEvent(view, mStartAttr.mAbsOffset, event);
                 mUpdateListener.onOverScrollUpdate(OverScrollBounceEffectDecoratorBase.this, mCurrDragState, 0);
 
@@ -264,6 +289,10 @@ public abstract class OverScrollBounceEffectDecoratorBase implements IOverScroll
                 view.getParent().requestDisallowInterceptTouchEvent(true);
             }
 
+            /**好像这个条件发生的几率超级小...
+             * @see mVelocity的值直接导致的在 {@link BounceBackState#createAnimator()}中
+             * 创建动画的不同情况
+             */
             long dt = event.getEventTime() - event.getHistoricalEventTime(0);
             if (dt > 0) { // Sometimes (though rarely) dt==0 cause originally timing is in nanos, but is presented in millis.
                 mVelocity = deltaOffset / dt;
@@ -316,6 +345,7 @@ public abstract class OverScrollBounceEffectDecoratorBase implements IOverScroll
 
         @Override
         public void handleEntryTransition(IDecoratorState fromState) {
+            //切换状态时 需要执行bounce动画
 
             mStateListener.onOverScrollStateChange(OverScrollBounceEffectDecoratorBase.this, fromState.getStateId(), this.getStateId());
 
@@ -410,10 +440,12 @@ public abstract class OverScrollBounceEffectDecoratorBase implements IOverScroll
     public OverScrollBounceEffectDecoratorBase(IOverScrollDecoratorAdapter viewAdapter, float decelerateFactor, float touchDragRatioFwd, float touchDragRatioBck) {
         mViewAdapter = viewAdapter;
 
+        //初始化3个滑动的状态
         mBounceBackState = new BounceBackState(decelerateFactor);
         mOverScrollingState = new OverScrollingState(touchDragRatioFwd, touchDragRatioBck);
         mIdleState = new IdleState();
 
+        //设置当前状态
         mCurrentState = mIdleState;
     }
 
@@ -453,6 +485,10 @@ public abstract class OverScrollBounceEffectDecoratorBase implements IOverScroll
         mCurrentState.handleEntryTransition(oldState);
     }
 
+    /**
+     * 以下的抽象方法都是抛给子类做具体的实现逻辑,然后再在对应的 {@link IDecoratorState}中处理
+     * 这样就不用关心具体view的实现了  实现了高度解耦
+     */
     protected abstract MotionAttributes createMotionAttributes();
     protected abstract AnimationAttributes createAnimationAttributes();
     protected abstract void translateView(View view, float offset);

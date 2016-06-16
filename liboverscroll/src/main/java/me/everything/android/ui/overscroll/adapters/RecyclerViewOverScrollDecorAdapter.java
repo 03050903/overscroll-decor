@@ -48,6 +48,8 @@ public class RecyclerViewOverScrollDecorAdapter implements IOverScrollDecoratorA
                         ? ((LinearLayoutManager) layoutManager).getOrientation()
                         : ((StaggeredGridLayoutManager) layoutManager).getOrientation());
 
+            //根据RecyclerView指定的方向来做滑动方向的判断
+            //大量使用了 Decorator模式来解耦
             if (orientation == LinearLayoutManager.HORIZONTAL) {
                 mImpl = new ImplHorizLayout();
             } else {
@@ -105,6 +107,15 @@ public class RecyclerViewOverScrollDecorAdapter implements IOverScrollDecoratorA
 
         @Override
         public boolean isInAbsoluteStart() {
+            /**
+             if (direction < 0) {
+             return offset > 0;
+             } else {
+             return offset < range - 1;
+             }
+
+             direction < 0 表示像左滑 但是此方法是表示 判断是否像右滑 所有加 !
+             */
             return !mRecyclerView.canScrollHorizontally(-1);
         }
 

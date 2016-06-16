@@ -76,6 +76,8 @@ public class HorizontalOverScrollBounceEffectDecorator extends OverScrollBounceE
         super(viewAdapter, decelerateFactor, touchDragRatioFwd, touchDragRatioBck);
 
         // Some setup on the view itself.
+        // 将view的onTouch事件交给父类处理,子类只关心一些抽象方法
+        // 父类会根据 onTouch事件来判断当前 滑动的状态
         mViewAdapter.getView().setOnTouchListener(this);
         mViewAdapter.getView().setOverScrollMode(View.OVER_SCROLL_NEVER);
     }
